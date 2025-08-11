@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Hybrid Fractal + Inkblot Visualizer — Shareable</title>
+<style>
+  :root{ --ui-bg: rgba(0,0,0,0.5); --accent: #ff6b6b; --ui-color: #fff; }
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;touch-action:none}
+  #ui{position:fixed;left:12px;top:12px;z-index:9999;background:var(--ui-bg);color:var(--ui-color);padding:12px;border-radius:12px;backdrop-filter:blur(6px);min-width:220px;font-size:14px}
+  #ui .row{display:flex;gap:8px;align-items:center}
+  #ui label{display:block;margin-top:8px;font-size:13px}
+  input[type=range]{width:100%}
+  button{background:var(--accent);border:0;color:#fff;padding:8px 12px;border-radius:8px;font-weight:600;cursor:pointer}
+  #small{font-size:12px;color:#ddd;margin-top:8px}
+  #audioControl{position:fixed;left:12px;bottom:12px;z-index:9998}
+  #playOverlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:9997;pointer-events:auto}
+  #playBtn{background:rgba(0,0,0,0.45);border:2px solid rgba(255,255,255,0.06);backdrop-filter:blur(6px);padding:20px;border-radius:999px;display:flex;align-items:center;gap:10px;cursor:pointer}
+  #playBtn svg{width:42px;height:42px}
+  #attribution{position:fixed;right:12px;bottom:12px;color:#ccc;font-size:12px;z-index:9999}
+</style>
+</head>
+<body>
+  <div id="ui">
+    <div class="row">
+      <button id="preview">Play</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <label>Symmetry (segments) <span id="symVal">6</span>
+      <input id="sym" type="range" min="1" max="12" step="1" value="6">
+    </label>
+    <label>Ink Density <span id="densVal">0.6</span>
+      <input id="density" type="range" min="0" max="1" step="0.01" value="0.6">
+    </label>
+    <label>Speed <span id="spdVal">1.0</span>
+      <input id="speed" type="range" min="0" max="2" step="0.01" value="1.0">
+    </label>
+    <label>Warmth Bias <span id="warmVal">0.5</span>
+      <input id="warmth" type="range" min="0" max="1" step="0.01" value="0.5">
+    </label>
+    <label>Brightness <span id="brightVal">1.0</span>
+      <input id="bright" type="range" min="0.2" max="2" step="0.01" value="1.0">
+    </label>
+    <div id="small">Tap canvas or the big play button to start. Audio is preloaded from Internet Archive and ready to play.</div>
+  </div>
+
+  <canvas id="c"></canvas>
+  <div id="audioControl"></div>
+  <div id="playOverlay"><div id="playBtn" aria-hidden="false" role="button">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="11" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/><path d="M10 8.5v7l5-3.5-5-3.5z" fill="#fff"/></svg>
+    <div style="color:#fff;font-weight:700">Tap to Play</div>
+  </div></div>
+  <div id="attribution">Audio: Internet Archive</div>
+
+<script>
+// REVISED visualizer: stronger bass/drum reactivity, auto-loads audio URL (preloaded), ready to play
+const AUTO_AUDIO_URL = 'https://ia800905.us.archive.org/1/items/bcr-3/BCR%203.wav';
+
+// ---------- Utilities (Perlin noise) ----------
+const Perlin = (function(){ const p = new Uint8Array(512); for(let i=0;i<256;i++) p[i]=i; for(let i=255;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [p[i],p[j]]=[p[j],p[i]]; } for(let i=0;i<512;i++) p[i+256]=p[i]; function fade(t){ return t*t*t*(t*(t*6-15)+10); } function lerp(a,b,t){ return a + t*(b-a); } function grad(hash,x,y){ const h=hash&3; const u = h<2?x:y; const v = h<2?y:x; return ((h&1)? -u:u) + ((h&2)? -2*v:2*v); } return { noise(x,y){ const X=Math.floor(x)&255, Y=Math.floor(y)&255; const xf=x-Math.floor(x), yf=y-Math.floor(y); const u=fade(xf), v=fade(yf); const aa=p[p[X]+Y], ab=p[p[X]+Y+1], ba=p[p[X+1]+Y], bb=p[p[X+1]+Y+1]; const x1=lerp(grad(aa, xf, yf), grad(ba, xf-1, yf), u); const x2=lerp(grad(ab, xf, yf-1), grad(bb, xf-1, yf-1), u); return (lerp(x1,x2,v)+1)*0.5; } }})();
+
+// ---------- Canvas setup ----------
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d', { alpha:true });
+function resize(){ const w=innerWidth, h=innerHeight, dpr = Math.max(1, devicePixelRatio||1); canvas.width = Math.floor(w*dpr); canvas.height = Math.floor(h*dpr); canvas.style.width = w+'px'; canvas.style.height = h+'px'; ctx.setTransform(dpr,0,0,dpr,0,0);} addEventListener('resize',resize); resize();
+
+// ---------- UI bindings ----------
+const UI = { preview: document.getElementById('preview'), stop: document.getElementById('stop'), sym: document.getElementById('sym'), symVal: document.getElementById('symVal'), density: document.getElementById('density'), densVal: document.getElementById('densVal'), speed: document.getElementById('speed'), spdVal: document.getElementById('spdVal'), warmth: document.getElementById('warmth'), warmVal: document.getElementById('warmVal'), bright: document.getElementById('bright'), brightVal: document.getElementById('brightVal') };
+function bindRange(el,val){ el.addEventListener('input', ()=> val.textContent = el.value ); }
+bindRange(UI.sym, UI.symVal); bindRange(UI.density, UI.densVal); bindRange(UI.speed, UI.spdVal); bindRange(UI.warmth, UI.warmVal); bindRange(UI.bright, UI.brightVal);
+
+// ---------- Audio setup ----------
+let audioEl=null, audioCtx=null, analyser=null, dataArray=null, sourceNode=null, bufferLength=1024;
+let bassSmooth=0, bassEnv=0;
+
+async function initAudioFromUrl(url){
+  // tear down
+  if (audioEl){ try{ audioEl.pause(); }catch(e){} audioEl.remove(); sourceNode && sourceNode.disconnect(); }
+  audioEl = new Audio();
+  audioEl.src = url;
+  audioEl.crossOrigin = 'anonymous';
+  audioEl.preload = 'auto';
+  audioEl.controls = true;
+  // small mobile-friendly control
+  audioEl.style.position = 'fixed'; audioEl.style.left='12px'; audioEl.style.bottom='12px'; audioEl.style.zIndex=9998; audioEl.style.width='160px';
+  const ctl = document.getElementById('audioControl'); ctl.innerHTML=''; ctl.appendChild(audioEl);
+
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048; // more resolution
+  bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+
+  sourceNode = audioCtx.createMediaElementSource(audioEl);
+  sourceNode.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  UI.stop.disabled = false;
+  audioEl.onended = ()=>{ UI.stop.disabled = true; };
+}
+
+// auto-init on load but DO NOT autoplay audio (browsers block sound without gesture). We'll preload and be ready.
+initAudioFromUrl(AUTO_AUDIO_URL).catch(console.warn);
+
+// Play / Stop
+async function startAudio(){ if (!audioEl) await initAudioFromUrl(AUTO_AUDIO_URL); if (audioCtx && audioCtx.state === 'suspended') try{ await audioCtx.resume(); }catch(e){} try{ await audioEl.play(); }catch(e){ console.warn('play blocked', e); }
+}
+UI.preview.addEventListener('click', async ()=>{ await startAudio(); document.getElementById('playOverlay').style.display='none'; });
+UI.stop.addEventListener('click', ()=>{ if (audioEl){ audioEl.pause(); audioEl.currentTime = 0; UI.stop.disabled = true; document.getElementById('playOverlay').style.display='flex'; } });
+
+// also overlay tap
+document.getElementById('playOverlay').addEventListener('click', async ()=>{ await startAudio(); document.getElementById('playOverlay').style.display='none'; });
+canvas.addEventListener('pointerdown', async ()=>{ if (!audioEl) await initAudioFromUrl(AUTO_AUDIO_URL); if (audioEl.paused) await startAudio(); else audioEl.pause(); });
+
+// ---------- Helpers ----------
+function hslToCss(h,s,l,a=1){ return `hsla(${h},${s}%,${l}%,${a})`; }
+function mix(a,b,t){ return a + (b-a)*t; }
+function paletteFor(t){ const warm=[15,30,50], cool=[230,280,160]; const res=[]; for(let i=0;i<warm.length;i++) res.push(mix(warm[i], cool[i], t)); return res; }
+
+// ---------- Visual core (bass-focused) ----------
+const inkCanvas = document.createElement('canvas'), inkCtx = inkCanvas.getContext('2d', { alpha:true });
+function ensureInk(){ const w=innerWidth, h=innerHeight, dpr=Math.max(1, devicePixelRatio||1); inkCanvas.width = Math.floor(w*dpr); inkCanvas.height = Math.floor(h*dpr); inkCanvas.style.width = w+'px'; inkCanvas.style.height = h+'px'; inkCtx.setTransform(dpr,0,0,dpr,0,0); }
+ensureInk(); addEventListener('resize', ensureInk);
+
+let lastTime = performance.now();
+function getAudioBands(arr){ if (!arr) return {bass:0,mids:0,highs:0,energy:0}; const n=arr.length; const bassEnd = Math.max(4, Math.floor(n * 0.08)); const midEnd = Math.floor(n * 0.45); let bass=0,mids=0,highs=0,tot=0; for(let i=0;i<n;i++){ tot += arr[i]; if (i < bassEnd) bass += arr[i] * (1 + (bassEnd - i)/bassEnd * 0.5); else if (i < midEnd) mids += arr[i]; else highs += arr[i]; } const denom = (tot||1); return { bass: (bass/(bassEnd))/255, mids:(mids/(midEnd-bassEnd))/255, highs:(highs/(n-midEnd))/255, energy: tot/(n*255) } }
+
+// simple beat/peak detector on bass for stronger pump
+let beatHold=0; function processBeat(bass){ // smooth envelope
+  const attack = 0.3, release=0.12; if (bass > bassEnv) bassEnv += (bass - bassEnv) * attack; else bassEnv += (bass - bassEnv) * release; // detect quick peaks
+  const isBeat = (bass > 0.22 && bass - bassSmooth > 0.06) || (bassEnv > 0.28);
+  // decay smooth
+  bassSmooth = bassSmooth * 0.88 + bass * 0.12;
+  if (isBeat && beatHold <= 0){ beatHold = 6; return true; } beatHold = Math.max(0, beatHold-1); return false; }
+
+function draw(now){ const s = parseFloat(UI.speed.value); const density = parseFloat(UI.density.value); const symmetry = Math.max(1, parseInt(UI.sym.value)); const warmthBias = parseFloat(UI.warmth.value); const bright = parseFloat(UI.bright.value);
+  const dt = (now - lastTime) * 0.001 * s; const time = now * 0.001;
+  lastTime = now;
+
+  // read audio
+  let spectrum = null; if (analyser && dataArray){ analyser.getByteFrequencyData(dataArray); spectrum = dataArray; }
+  const bands = getAudioBands(spectrum);
+  // stronger bass influence
+  const bassInfluence = Math.min(2.5, bands.bass * 2.8 + bands.energy * 0.8);
+  const highInfluence = Math.min(1.8, bands.highs * 1.6 + bands.mids * 0.4);
+  const energy = bands.energy;
+
+  const beat = processBeat(bands.bass);
+
+  // background
+  const blend = (Math.sin(time*0.02) * 0.5 + 0.5) * (1 - warmthBias) + warmthBias * (1 - (Math.sin(time*0.01)*0.5+0.5));
+  const pal = paletteFor(blend);
+  const g = ctx.createLinearGradient(0,0,canvas.width,canvas.height);
+  g.addColorStop(0, hslToCss(pal[0], 60, 10, 1 * bright));
+  g.addColorStop(0.5, hslToCss(pal[1], 55, 8, 1 * bright));
+  g.addColorStop(1, hslToCss(pal[2], 50, 9, 1 * bright));
+  ctx.globalCompositeOperation='source-over'; ctx.fillStyle=g; ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  // ink feedback fade
+  inkCtx.globalCompositeOperation='destination-out'; inkCtx.fillStyle = `rgba(0,0,0,${0.03 * (1/density)})`; inkCtx.fillRect(0,0,innerWidth,innerHeight); inkCtx.globalCompositeOperation='lighter';
+
+  const centerX = innerWidth/2, centerY = innerHeight/2; const maxR = Math.min(innerWidth, innerHeight) * 0.45;
+  const blobs = Math.max(3, Math.floor(6 * density));
+
+  for (let b=0;b<blobs;b++){
+    const baseAngle = (time * (0.4 + b*0.02) + b * 2.3);
+    const angle = baseAngle + Math.sin(time * (0.7 + b*0.05)) * 1.2;
+    // stronger beat-driven radius modulation
+    const radialPulse = 1 + bassInfluence * (0.9 + 0.6 * Math.sin(time*2.7 + b));
+    const r = maxR * (0.15 + 0.6 * Math.abs(Math.sin(b * 1.1234 + time * (0.14 + b*0.02))));
+    const px = centerX + Math.cos(angle) * (r * radialPulse * 0.8);
+    const py = centerY + Math.sin(angle) * (r * radialPulse * 0.8);
+
+    const pb = (b / blobs);
+    const hue = mix(pal[0], pal[1], pb*0.6 + energy*0.4);
+    const hue2 = mix(pal[1], pal[2], pb*0.5 + bands.mids*0.4);
+    const sat = Math.floor(55 + energy*35 + bassInfluence*10);
+    const light = Math.floor(36 + energy*36 + bassInfluence*8);
+    inkCtx.fillStyle = hslToCss(mix(hue,hue2,0.5), sat, light, 0.18 * Math.min(1, 0.6 + density + bassInfluence*0.12));
+
+    inkCtx.beginPath();
+    const steps = 28 + Math.floor(28 * (1 - density));
+    for (let i=0;i<=steps;i++){
+      const theta = (i / steps) * Math.PI*2;
+      const nx = Math.cos(theta) * (0.5 + pb*0.2) + time*0.06;
+      const ny = Math.sin(theta) * (0.5 + pb*0.2) - time*0.03;
+      const n = Perlin.noise(nx * (1+pb*3) + b, ny*(1+pb*2) - b*0.2);
+      // increase displacement responsiveness to highs + bass for sharper edges on drums
+      const disp = (n - 0.5) * (40 + 100 * (1-pb)) * (0.8 + highInfluence) * (0.9 + bassInfluence*0.25);
+      const rr = r * (0.25 + pb*0.75) * (0.6 + 0.45 * radialPulse) + disp;
+      const vx = px + Math.cos(theta) * rr;
+      const vy = py + Math.sin(theta) * rr;
+      if (i===0) inkCtx.moveTo(vx, vy); else inkCtx.lineTo(vx, vy);
+    }
+    inkCtx.closePath(); inkCtx.fill();
+
+    inkCtx.strokeStyle = hslToCss(mix(hue,hue2,0.4), 60, Math.min(70, light+10), 0.06 + energy*0.06 + bassInfluence*0.03); inkCtx.lineWidth = 1; inkCtx.stroke();
+
+    // If we detect a beat, paint an extra burst
+    if (beat){ inkCtx.beginPath(); inkCtx.arc(px, py, Math.max(6, 20 * (0.6 + bassInfluence)), 0, Math.PI*2); inkCtx.closePath(); inkCtx.fillStyle = hslToCss(hue, 70, 55, 0.08 + Math.min(0.4, bassInfluence*0.18)); inkCtx.fill(); }
+  }
+
+  // composite ink onto main canvas with symmetry
+  ctx.save(); ctx.translate(centerX, centerY);
+  const rot = time * 0.08 * (0.6 + 0.8 * (1 - parseFloat(UI.speed.value)));
+  ctx.rotate(rot); ctx.globalCompositeOperation = 'lighter';
+  const seg = symmetry;
+  for (let m=0;m<seg;m++){
+    ctx.save(); ctx.rotate((m/seg) * Math.PI*2);
+    ctx.drawImage(inkCanvas, -centerX, -centerY, innerWidth, innerHeight);
+    ctx.scale(-1,1); ctx.drawImage(inkCanvas, -centerX, -centerY, innerWidth, innerHeight);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // vignette
+  ctx.globalCompositeOperation='source-over'; const vg = ctx.createRadialGradient(centerX, centerY, maxR*0.3, centerX, centerY, maxR*1.1);
+  vg.addColorStop(0, `rgba(255,255,255,${0.02 * bright})`); vg.addColorStop(0.6, `rgba(0,0,0,0)`); vg.addColorStop(1, `rgba(0,0,0,${0.25 * (1/bright)})`);
+  ctx.fillStyle = vg; ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
