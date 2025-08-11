@@ -5,20 +5,200 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>Hybrid Fractal + Inkblot Visualizer — Shareable</title>
 <style>
-  :root{ --ui-bg: rgba(0,0,0,0.5); --accent: #ff6b6b; --ui-color: #fff; }
-  html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-  canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;touch-action:none}
-  #ui{position:fixed;left:12px;top:12px;z-index:9999;background:var(--ui-bg);color:var(--ui-color);padding:12px;border-radius:12px;backdrop-filter:blur(6px);min-width:220px;font-size:14px}
-  #ui .row{display:flex;gap:8px;align-items:center}
-  #ui label{display:block;margin-top:8px;font-size:13px}
-  input[type=range]{width:100%}
-  button{background:var(--accent);border:0;color:#fff;padding:8px 12px;border-radius:8px;font-weight:600;cursor:pointer}
-  #small{font-size:12px;color:#ddd;margin-top:8px}
-  #audioControl{position:fixed;left:12px;bottom:12px;z-index:9998}
-  #playOverlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:9997;pointer-events:auto}
-  #playBtn{background:rgba(0,0,0,0.45);border:2px solid rgba(255,255,255,0.06);backdrop-filter:blur(6px);padding:20px;border-radius:999px;display:flex;align-items:center;gap:10px;cursor:pointer}
-  #playBtn svg{width:42px;height:42px}
-  #attribution{position:fixed;right:12px;bottom:12px;color:#ccc;font-size:12px;z-index:9999}
+  :root{
+    --ui-bg: rgba(0,0,0,0.5);
+    --accent: #ff6b6b;
+    --ui-color: #fff;
+    --ui-border: rgba(255,255,255,0.06);
+    --player-height: 48px;
+    --player-bg: rgba(0,0,0,0.45);
+    --loading-color: #fff;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    background:#000;
+    overflow:hidden;
+    font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;
+  }
+  canvas{
+    position:fixed;
+    inset:0;
+    width:100vw;
+    height:100vh;
+    display:block;
+    touch-action:none;
+  }
+  #ui, #ui-toggle{
+    position:fixed;
+    z-index:9999;
+    background:var(--ui-bg);
+    color:var(--ui-color);
+    padding:12px;
+    border-radius:12px;
+    backdrop-filter:blur(6px);
+    font-size:14px;
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  }
+  #ui{
+    left:12px;
+    top:12px;
+    min-width:220px;
+  }
+  #ui.hidden{
+    transform: translateX(-110%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  #ui-toggle{
+    left: auto;
+    right: 12px;
+    top: 12px;
+    background: var(--ui-bg);
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: var(--ui-color);
+    backdrop-filter: blur(6px);
+  }
+  #ui .row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  #ui label{
+    display:block;
+    margin-top:8px;
+    font-size:13px;
+  }
+  input[type=range]{
+    width:100%;
+    -webkit-appearance: none;
+    height: 6px;
+    background: #555;
+    border-radius: 3px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 4px rgba(0,0,0,0.4);
+  }
+  button{
+    background:var(--accent);
+    border:0;
+    color:#fff;
+    padding:8px 12px;
+    border-radius:8px;
+    font-weight:600;
+    cursor:pointer;
+    transition: background-color 0.2s;
+  }
+  button:hover{
+    background: #ff4747;
+  }
+  button:disabled{
+    background:#444;
+    cursor: not-allowed;
+  }
+  #small{
+    font-size:12px;
+    color:#ddd;
+    margin-top:8px;
+  }
+
+  /* Redesigned and centered audio control panel */
+  #audioControl{
+    position:fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom:12px;
+    z-index:9998;
+    background:var(--player-bg);
+    backdrop-filter: blur(6px);
+    border: 2px solid var(--ui-border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ui-color);
+    width: calc(100% - 24px);
+    max-width: 480px;
+  }
+
+  #audioControl button{
+    background: none;
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  #audioControl button svg{
+    width: 24px;
+    height: 24px;
+    fill: #fff;
+  }
+
+  #audioControl .progress-bar-container{
+    flex-grow: 1;
+    position: relative;
+    height: 6px;
+    background: #555;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #audioControl .progress-bar{
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+  }
+  #audioControl .time-display{
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  #playOverlay{
+    position:fixed;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9997;
+    pointer-events:auto;
+  }
+  #playBtn{
+    background:var(--player-bg);
+    border:2px solid var(--ui-border);
+    backdrop-filter:blur(6px);
+    padding:20px;
+    border-radius:999px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    cursor:pointer;
+    transition: transform 0.2s ease-out;
+  }
+  #playBtn:hover{
+    transform: scale(1.05);
+  }
+  #playBtn svg{
+    width:42px;
+    height:42px;
+  }
+
 </style>
 </head>
 <body>
@@ -27,34 +207,43 @@
       <button id="preview">Play</button>
       <button id="stop" disabled>Stop</button>
     </div>
-    <label>Symmetry (segments) <span id="symVal">6</span>
-      <input id="sym" type="range" min="1" max="12" step="1" value="6">
+    <label>Symmetry (segments) <span id="symVal">3</span>
+      <input id="sym" type="range" min="1" max="12" step="1" value="3">
     </label>
-    <label>Ink Density <span id="densVal">0.6</span>
-      <input id="density" type="range" min="0" max="1" step="0.01" value="0.6">
+    <label>Ink Density <span id="densVal">0.08</span>
+      <input id="density" type="range" min="0" max="1" step="0.01" value="0.08">
     </label>
-    <label>Speed <span id="spdVal">1.0</span>
-      <input id="speed" type="range" min="0" max="2" step="0.01" value="1.0">
+    <label>Speed <span id="spdVal">0.80</span>
+      <input id="speed" type="range" min="0" max="2" step="0.01" value="0.80">
     </label>
-    <label>Warmth Bias <span id="warmVal">0.5</span>
-      <input id="warmth" type="range" min="0" max="1" step="0.01" value="0.5">
+    <label>Warmth Bias <span id="warmVal">0.8</span>
+      <input id="warmth" type="range" min="0" max="1" step="0.01" value="0.8">
     </label>
-    <label>Brightness <span id="brightVal">1.0</span>
-      <input id="bright" type="range" min="0.2" max="2" step="0.01" value="1.0">
+    <label>Brightness <span id="brightVal">0.83</span>
+      <input id="bright" type="range" min="0.2" max="1" step="0.01" value="0.83">
     </label>
-    <div id="small">Tap canvas or the big play button to start. Audio is preloaded from Internet Archive and ready to play.</div>
   </div>
 
+  <button id="ui-toggle">Hide Controls</button>
+
   <canvas id="c"></canvas>
-  <div id="audioControl"></div>
+  <div id="audioControl">
+    <button id="playPauseBtn">
+      <svg id="playIcon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7z" fill="#fff"/></svg>
+      <svg id="pauseIcon" style="display:none;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="#fff"/></svg>
+    </button>
+    <div class="time-display" id="currentTime">0:00</div>
+    <div class="progress-bar-container" id="progressBarContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="time-display" id="duration">0:00</div>
+  </div>
   <div id="playOverlay"><div id="playBtn" aria-hidden="false" role="button">
     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="11" stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/><path d="M10 8.5v7l5-3.5-5-3.5z" fill="#fff"/></svg>
     <div style="color:#fff;font-weight:700">Tap to Play</div>
   </div></div>
-  <div id="attribution">Audio: Internet Archive</div>
 
 <script>
-// REVISED visualizer: stronger bass/drum reactivity, auto-loads audio URL (preloaded), ready to play
 const AUTO_AUDIO_URL = 'https://ia800905.us.archive.org/1/items/bcr-3/BCR%203.wav';
 
 // ---------- Utilities (Perlin noise) ----------
@@ -65,13 +254,48 @@ const canvas = document.getElementById('c'), ctx = canvas.getContext('2d', { alp
 function resize(){ const w=innerWidth, h=innerHeight, dpr = Math.max(1, devicePixelRatio||1); canvas.width = Math.floor(w*dpr); canvas.height = Math.floor(h*dpr); canvas.style.width = w+'px'; canvas.style.height = h+'px'; ctx.setTransform(dpr,0,0,dpr,0,0);} addEventListener('resize',resize); resize();
 
 // ---------- UI bindings ----------
-const UI = { preview: document.getElementById('preview'), stop: document.getElementById('stop'), sym: document.getElementById('sym'), symVal: document.getElementById('symVal'), density: document.getElementById('density'), densVal: document.getElementById('densVal'), speed: document.getElementById('speed'), spdVal: document.getElementById('spdVal'), warmth: document.getElementById('warmth'), warmVal: document.getElementById('warmVal'), bright: document.getElementById('bright'), brightVal: document.getElementById('brightVal') };
+const UI = {
+  uiPanel: document.getElementById('ui'),
+  uiToggle: document.getElementById('ui-toggle'),
+  preview: document.getElementById('preview'),
+  stop: document.getElementById('stop'),
+  playPauseBtn: document.getElementById('playPauseBtn'),
+  playIcon: document.getElementById('playIcon'),
+  pauseIcon: document.getElementById('pauseIcon'),
+  progressBarContainer: document.getElementById('progressBarContainer'),
+  progressBar: document.getElementById('progressBar'),
+  currentTime: document.getElementById('currentTime'),
+  duration: document.getElementById('duration'),
+  sym: document.getElementById('sym'),
+  symVal: document.getElementById('symVal'),
+  density: document.getElementById('density'),
+  densVal: document.getElementById('densVal'),
+  speed: document.getElementById('speed'),
+  spdVal: document.getElementById('spdVal'),
+  warmth: document.getElementById('warmth'),
+  warmVal: document.getElementById('warmVal'),
+  bright: document.getElementById('bright'),
+  brightVal: document.getElementById('brightVal'),
+};
+
+UI.uiToggle.addEventListener('click', () => {
+    UI.uiPanel.classList.toggle('hidden');
+    UI.uiToggle.textContent = UI.uiPanel.classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';
+});
+
 function bindRange(el,val){ el.addEventListener('input', ()=> val.textContent = el.value ); }
 bindRange(UI.sym, UI.symVal); bindRange(UI.density, UI.densVal); bindRange(UI.speed, UI.spdVal); bindRange(UI.warmth, UI.warmVal); bindRange(UI.bright, UI.brightVal);
 
 // ---------- Audio setup ----------
 let audioEl=null, audioCtx=null, analyser=null, dataArray=null, sourceNode=null, bufferLength=1024;
 let bassSmooth=0, bassEnv=0;
+
+// Helper to format time
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
 
 async function initAudioFromUrl(url){
   // tear down
@@ -80,10 +304,32 @@ async function initAudioFromUrl(url){
   audioEl.src = url;
   audioEl.crossOrigin = 'anonymous';
   audioEl.preload = 'auto';
-  audioEl.controls = true;
-  // small mobile-friendly control
-  audioEl.style.position = 'fixed'; audioEl.style.left='12px'; audioEl.style.bottom='12px'; audioEl.style.zIndex=9998; audioEl.style.width='160px';
-  const ctl = document.getElementById('audioControl'); ctl.innerHTML=''; ctl.appendChild(audioEl);
+
+  // Attach event listeners for the custom player
+  audioEl.addEventListener('loadedmetadata', () => {
+    UI.duration.textContent = formatTime(audioEl.duration);
+  });
+  audioEl.addEventListener('timeupdate', () => {
+    const progress = (audioEl.currentTime / audioEl.duration) * 100;
+    UI.progressBar.style.width = `${progress}%`;
+    UI.currentTime.textContent = formatTime(audioEl.currentTime);
+  });
+  audioEl.addEventListener('play', () => {
+    UI.playIcon.style.display = 'none';
+    UI.pauseIcon.style.display = 'block';
+    document.getElementById('playOverlay').style.display='none';
+  });
+  audioEl.addEventListener('pause', () => {
+    UI.playIcon.style.display = 'block';
+    UI.pauseIcon.style.display = 'none';
+    document.getElementById('playOverlay').style.display='flex';
+  });
+  audioEl.onended = ()=>{
+    UI.stop.disabled = true;
+    UI.playIcon.style.display = 'block';
+    UI.pauseIcon.style.display = 'none';
+    document.getElementById('playOverlay').style.display='flex';
+  };
 
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   analyser = audioCtx.createAnalyser();
@@ -96,21 +342,54 @@ async function initAudioFromUrl(url){
   analyser.connect(audioCtx.destination);
 
   UI.stop.disabled = false;
-  audioEl.onended = ()=>{ UI.stop.disabled = true; };
 }
 
 // auto-init on load but DO NOT autoplay audio (browsers block sound without gesture). We'll preload and be ready.
 initAudioFromUrl(AUTO_AUDIO_URL).catch(console.warn);
 
 // Play / Stop
-async function startAudio(){ if (!audioEl) await initAudioFromUrl(AUTO_AUDIO_URL); if (audioCtx && audioCtx.state === 'suspended') try{ await audioCtx.resume(); }catch(e){} try{ await audioEl.play(); }catch(e){ console.warn('play blocked', e); }
+async function startAudio(){
+  if (!audioEl) await initAudioFromUrl(AUTO_AUDIO_URL);
+  if (audioCtx && audioCtx.state === 'suspended') try{ await audioCtx.resume(); }catch(e){}
+  try{ await audioEl.play(); }catch(e){ console.warn('play blocked', e); }
 }
-UI.preview.addEventListener('click', async ()=>{ await startAudio(); document.getElementById('playOverlay').style.display='none'; });
-UI.stop.addEventListener('click', ()=>{ if (audioEl){ audioEl.pause(); audioEl.currentTime = 0; UI.stop.disabled = true; document.getElementById('playOverlay').style.display='flex'; } });
+
+function pauseAudio(){
+  if(audioEl) audioEl.pause();
+}
+
+UI.preview.addEventListener('click', async ()=>{
+  await startAudio();
+  UI.stop.disabled = false;
+  document.getElementById('playOverlay').style.display='none';
+});
+
+UI.stop.addEventListener('click', ()=>{
+  if (audioEl){ audioEl.pause(); audioEl.currentTime = 0; UI.stop.disabled = true; document.getElementById('playOverlay').style.display='flex'; }
+});
+
+UI.playPauseBtn.addEventListener('click', async () => {
+  if (audioEl.paused) {
+    await startAudio();
+    UI.stop.disabled = false;
+  } else {
+    pauseAudio();
+  }
+});
+
+UI.progressBarContainer.addEventListener('click', (e) => {
+  const rect = UI.progressBarContainer.getBoundingClientRect();
+  const clickPosition = e.clientX - rect.left;
+  const newTime = (clickPosition / rect.width) * audioEl.duration;
+  if (!isNaN(newTime)) {
+    audioEl.currentTime = newTime;
+  }
+});
 
 // also overlay tap
-document.getElementById('playOverlay').addEventListener('click', async ()=>{ await startAudio(); document.getElementById('playOverlay').style.display='none'; });
+document.getElementById('playOverlay').addEventListener('click', async ()=>{ await startAudio(); });
 canvas.addEventListener('pointerdown', async ()=>{ if (!audioEl) await initAudioFromUrl(AUTO_AUDIO_URL); if (audioEl.paused) await startAudio(); else audioEl.pause(); });
+
 
 // ---------- Helpers ----------
 function hslToCss(h,s,l,a=1){ return `hsla(${h},${s}%,${l}%,${a})`; }
@@ -159,7 +438,9 @@ function draw(now){ const s = parseFloat(UI.speed.value); const density = parseF
   // ink feedback fade
   inkCtx.globalCompositeOperation='destination-out'; inkCtx.fillStyle = `rgba(0,0,0,${0.03 * (1/density)})`; inkCtx.fillRect(0,0,innerWidth,innerHeight); inkCtx.globalCompositeOperation='lighter';
 
-  const centerX = innerWidth/2, centerY = innerHeight/2; const maxR = Math.min(innerWidth, innerHeight) * 0.45;
+  const centerX = innerWidth/2, centerY = innerHeight/2;
+  // Reduced max radius for smaller overall shapes
+  const maxR = Math.min(innerWidth, innerHeight) * 0.35;
   const blobs = Math.max(3, Math.floor(6 * density));
 
   for (let b=0;b<blobs;b++){
@@ -185,8 +466,8 @@ function draw(now){ const s = parseFloat(UI.speed.value); const density = parseF
       const nx = Math.cos(theta) * (0.5 + pb*0.2) + time*0.06;
       const ny = Math.sin(theta) * (0.5 + pb*0.2) - time*0.03;
       const n = Perlin.noise(nx * (1+pb*3) + b, ny*(1+pb*2) - b*0.2);
-      // increase displacement responsiveness to highs + bass for sharper edges on drums
-      const disp = (n - 0.5) * (40 + 100 * (1-pb)) * (0.8 + highInfluence) * (0.9 + bassInfluence*0.25);
+      // Reduced displacement for smaller, more contained shapes
+      const disp = (n - 0.5) * (20 + 80 * (1-pb)) * (0.8 + highInfluence) * (0.9 + bassInfluence*0.25);
       const rr = r * (0.25 + pb*0.75) * (0.6 + 0.45 * radialPulse) + disp;
       const vx = px + Math.cos(theta) * rr;
       const vy = py + Math.sin(theta) * rr;
